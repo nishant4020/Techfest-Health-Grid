@@ -61,7 +61,6 @@ class HealthRecord(db.Model):
     status = db.Column(db.String(50), nullable=False)
     consent_verified = db.Column(db.Boolean, nullable=False)
     submitted_by = db.Column(db.String(50), nullable=False)
-    # NEW MEDICAL COLUMNS
     treatment_notes = db.Column(db.String(500), nullable=True)
     treated_by = db.Column(db.String(50), nullable=True)
 
@@ -96,14 +95,13 @@ with app.app_context():
             User(username="asha_01", password="password123", role="asha", name="ASHA Worker 1"),
             User(username="admin_01", password="admin123", role="district_admin", name="District Health Admin"),
             User(username="co_admin_01", password="admin123", role="co_admin", name="Block Level Co-Admin"),
-            # NEW DOCTOR USER
             User(username="doctor_01", password="password123", role="doctor", name="Dr. Sharma (Pediatrician)")
         ])
         db.session.commit()
         
         db.session.bulk_save_objects([
             HealthRecord(child_id="C101", age_months=12, gender="male", weight=9.6, status="normal", consent_verified=True, submitted_by="asha_01"),
-            HealthRecord(child_id="C102", age_months=12, gender="female", weight=5.2, status="severe_malnutrition_risk", consent_verified=True, submitted_by="anganwadi_01")
+            HealthRecord(child_id="C102", age_months=12, gender="female", weight=5.2, status="severe_malnutrition_risk", consent_verified=True, submitted_by="anganwadi_01", treatment_notes="Started nutritional therapy phase 1", treated_by="Dr. Sharma (Pediatrician)")
         ])
         db.session.commit()
         log_action("system", "INITIALIZE", "Database seeded with Doctor role activated")
@@ -131,7 +129,8 @@ def get_public_data():
         "severe_cases": sum(1 for r in records if r.status == 'severe_malnutrition_risk'),
         "moderate_cases": sum(1 for r in records if r.status == 'moderate_malnutrition_risk'),
         "normal_cases": sum(1 for r in records if r.status == 'normal'),
-        "recent_entries": [{"weight": r.weight, "status": r.status} for r in recent]
+        # UPDATED: We now pass the treatment_notes and treated_by to the public dashboard
+        "recent_entries": [{"weight": r.weight, "status": r.status, "treatment_notes": r.treatment_notes, "treated_by": r.treated_by} for r in recent]
     }), 200
 
 @app.route('/api/v1/auth/login', methods=['POST'])
@@ -260,11 +259,10 @@ def sync_health_data():
     log_action(current_username, "SYNC_RECORD", f"Logged {status} (Z:{z_score}) for ID: {child_id}")
     return jsonify({"message": f"Record integrated. Z-Score: {z_score}"}), 201
 
-# NEW ROUTE: Doctors submitting medical reports
 @app.route('/api/v1/records/<int:record_id>/treat', methods=['PUT'])
 @require_roles(allowed_roles=["doctor"])
 def submit_treatment(record_id):
-    current_username = request.headers.get('Authorization').replace("Bearer ", "").split("-")[1]
+    current_username = request.request.headers.get('Authorization').replace("Bearer ", "").split("-")[1]
     record = HealthRecord.query.get(record_id)
     if not record: return jsonify({"error": "Record not found"}), 404
     
@@ -288,7 +286,6 @@ def get_all_records():
     token_val = token.replace("Bearer ", "")
     current_role, current_username = token_val.split("-")[0], token_val.split("-")[1]
     
-    # Doctors and Admins see all records
     if current_role in ["district_admin", "co_admin", "doctor"]:
         records = HealthRecord.query.order_by(HealthRecord.id.desc()).all()
     else:

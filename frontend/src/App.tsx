@@ -2,7 +2,7 @@ import { useState, useEffect, type FormEvent } from 'react';
 
 interface HealthRecord { id: number; child_id: string; weight: number; age: number; gender: string; status: string; submitted_by?: string; treatment_notes?: string; treated_by?: string; }
 interface UserInfo { username: string; name: string; role: string; password?: string; }
-interface PublicStats { total_tracked: number; severe_cases: number; moderate_cases: number; normal_cases: number; recent_entries: { weight: number, status: string }[]; }
+interface PublicStats { total_tracked: number; severe_cases: number; moderate_cases: number; normal_cases: number; recent_entries: { weight: number, status: string, treatment_notes?: string, treated_by?: string }[]; }
 interface SystemLog { id: number; timestamp: string; username: string; action: string; details: string; }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000';
@@ -57,7 +57,6 @@ export default function App() {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ newUsername: '', newPassword: '' });
 
-  // NEW: Doctor Medical Report State
   const [treatingRecordId, setTreatingRecordId] = useState<number | null>(null);
   const [treatmentText, setTreatmentText] = useState('');
 
@@ -151,7 +150,6 @@ export default function App() {
   const handleDeleteUser = async (u: string) => { if (window.confirm(`Delete ${u}?`)) fetch(`${API_BASE}/api/v1/users/${u}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }).then(() => fetchUsers()); };
   const handleEditSubmit = async (u: string) => { fetch(`${API_BASE}/api/v1/users/${u}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ new_username: editForm.newUsername, new_password: editForm.newPassword }) }).then(() => { setEditingUserId(null); fetchUsers(); }); };
 
-  // NEW: Handle Medical Report Submission
   const submitTreatment = async (recordId: number) => {
     try {
       const res = await fetch(`${API_BASE}/api/v1/records/${recordId}/treat`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ notes: treatmentText }) });
@@ -189,12 +187,14 @@ export default function App() {
         .glow-doctor { animation: pulseDoctor 3s infinite; border: 1px solid #38bdf8; }
       `}</style>
 
+      {/* --- PUBLIC DASHBOARD WITH DOCTOR NOTES --- */}
       {!token && !showLoginView && (
         <div className="main-container">
           <header className="header-container">
             <div><h1 style={{ margin: 0, color: '#34d399' }}>Public Node</h1><p>DPDP-Compliant Live Health Transparency Dashboard</p></div>
             <button className="btn" onClick={() => setShowLoginView(true)} style={{ backgroundColor: '#10b981', color: 'white' }}>Official Login</button>
           </header>
+          
           {publicData ? (
             <>
               <div className="stat-grid">
@@ -203,25 +203,42 @@ export default function App() {
                 <div className="glass-card" style={{ padding: '30px', textAlign: 'center', borderTop: '4px solid #f59e0b' }}><h2 style={{ fontSize: '3rem', margin: 0, color: '#f59e0b' }}>{publicData.moderate_cases}</h2><p>Moderate Risk</p></div>
                 <div className="glass-card" style={{ padding: '30px', textAlign: 'center', borderTop: '4px solid #ef4444' }}><h2 style={{ fontSize: '3rem', margin: 0, color: '#ef4444' }}>{publicData.severe_cases}</h2><p>Severe Risk</p></div>
               </div>
+
               <div className="glass-card table-wrapper" style={{ marginTop: '24px' }}>
                 <div style={{ padding: '24px', borderBottom: '1px solid rgba(52, 211, 153, 0.2)' }}>
                   <h3 style={{ margin: 0 }}>Recent Anonymized Scans</h3>
-                  <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>Child IDs and Worker details hidden for DPDP compliance.</p>
+                  <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>Child IDs are hidden for DPDP compliance. Medical responses are updated in real-time.</p>
                 </div>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr style={{ background: 'rgba(30,41,59,0.5)' }}><th>Recorded Weight</th><th>Clinical Health Status</th></tr></thead>
+                  <thead><tr style={{ background: 'rgba(30,41,59,0.5)' }}><th>Recorded Weight</th><th>Clinical Health Status</th><th>Medical Action Taken</th></tr></thead>
                   <tbody>
                     {publicData.recent_entries.map((e, i) => (
                       <tr key={i}>
                         <td style={{ fontWeight: 'bold' }}>{e.weight} kg</td>
-                        <td style={{ color: e.status === 'normal' ? '#34d399' : e.status === 'moderate_malnutrition_risk' ? '#f59e0b' : '#ef4444', fontWeight: 'bold' }}>{e.status.replace(/_/g, ' ').toUpperCase()}</td>
+                        <td>
+                          <span style={{ 
+                            padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold',
+                            backgroundColor: e.status === 'normal' ? 'rgba(52, 211, 153, 0.1)' : e.status === 'moderate_malnutrition_risk' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            color: e.status === 'normal' ? '#34d399' : e.status === 'moderate_malnutrition_risk' ? '#f59e0b' : '#ef4444' 
+                          }}>
+                            {e.status.replace(/_/g, ' ').toUpperCase()}
+                          </span>
+                        </td>
+                        <td>
+                          {/* PUBLIC DISPLAY OF DOCTOR'S NOTES */}
+                          {e.treatment_notes ? (
+                            <span style={{ fontSize: '13px', color: '#cbd5e1' }}><strong style={{ color: '#38bdf8' }}>{e.treated_by}:</strong> {e.treatment_notes}</span>
+                          ) : (
+                            <span style={{ fontSize: '13px', color: '#64748b' }}>Pending Review / Routine Tracking</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </>
-          ) : <p style={{ textAlign: 'center', color: '#94a3b8' }}>Connecting...</p>}
+          ) : <p style={{ textAlign: 'center', color: '#94a3b8' }}>Connecting to Interoperability Grid...</p>}
         </div>
       )}
 
@@ -235,7 +252,7 @@ export default function App() {
               <input className="input-field" type="password" required placeholder="Password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
               <button className="btn" type="submit" style={{ backgroundColor: '#10b981', color: 'white' }}>Authenticate</button>
             </form>
-            {loginError && <p style={{ color: '#f87171', textAlign: 'center' }}>{loginError}</p>}
+            {loginError && <p style={{ color: '#f87171', textAlign: 'center', marginTop: '16px' }}>{loginError}</p>}
           </div>
         </div>
       )}
@@ -326,7 +343,6 @@ export default function App() {
                           <td>{r.submitted_by}</td>
                           <td style={{ color: r.status === 'normal' ? '#34d399' : '#f87171', fontWeight: 'bold' }}>{r.status.toUpperCase()}</td>
                           <td>
-                            {/* DOCTOR TREATMENT UI LOGIC */}
                             {r.treatment_notes ? (
                               <div style={{ fontSize: '12px' }}><span style={{ color: '#38bdf8', fontWeight: 'bold' }}>Treated by {r.treated_by}:</span> {r.treatment_notes}</div>
                             ) : isDoctor ? (
