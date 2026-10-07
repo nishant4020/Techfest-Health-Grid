@@ -7,26 +7,24 @@ import requests
 import os
 
 app = Flask(__name__)
-# Enable CORS for all domains so your Vercel frontend can talk to your Render backend
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'techfest_2026_secure_key')
 
-# --- SECURE CLOUD-READY DATABASE CONFIGURATION ---
 basedir = os.path.abspath(os.path.dirname(__file__))
 local_db = 'sqlite:///' + os.path.join(basedir, 'healthgrid.db')
-# If deployed on cloud, it uses the cloud DB URL, otherwise it uses local SQLite
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', local_db)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# --- DATABASE MODELS ---
+# --- UPDATED DATABASE MODELS ---
 class HealthRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     child_id = db.Column(db.String(50), nullable=False)
     weight = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(50), nullable=False)
     consent_verified = db.Column(db.Boolean, nullable=False)
+    submitted_by = db.Column(db.String(50), nullable=False) # NEW: Tracks who entered the data
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -50,20 +48,19 @@ with app.app_context():
         db.session.bulk_save_objects(seed_users)
         
         seed_records = [
-            HealthRecord(child_id="C101", weight=8.5, status="normal", consent_verified=True),
-            HealthRecord(child_id="C102", weight=5.2, status="severe_malnutrition_risk", consent_verified=True)
+            HealthRecord(child_id="C101", weight=8.5, status="normal", consent_verified=True, submitted_by="asha_01"),
+            HealthRecord(child_id="C102", weight=5.2, status="severe_malnutrition_risk", consent_verified=True, submitted_by="anganwadi_01")
         ]
         db.session.bulk_save_objects(seed_records)
         db.session.commit()
-        print("✅ Database created and seeded successfully!")
+        print("✅ Database created with user tracking successfully!")
 
 def require_roles(allowed_roles):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             token = request.headers.get('Authorization')
-            if not token or not token.startswith("Bearer "):
-                return jsonify({"error": "Unauthorized"}), 401
+            if not token or not token.startswith("Bearer "): return jsonify({"error": "Unauthorized"}), 401
             
             token_value = token.replace("Bearer ", "")
             parts = token_value.split("-")
@@ -120,8 +117,7 @@ def request_otp():
         try:
             res = requests.post('https://textbelt.com/text', {'phone': identifier, 'message': f'Techfest OTP: {otp_code}', 'key': 'textbelt_test'}, timeout=3)
             if not res.json().get('success'): print(f"⚠️ SMS Gateway Warning. Using fallback.")
-        except Exception as e:
-            print(f"⚠️ SMS Network Error. Using terminal fallback.")
+        except Exception as e: print(f"⚠️ SMS Network Error. Using terminal fallback.")
             
     print(f"\n==========================================")
     print(f"🔒 SECURITY OTP ({channel_type} -> {identifier}) for [{current_username}]: {otp_code}")
@@ -132,7 +128,6 @@ def request_otp():
 def change_own_password():
     token = request.headers.get('Authorization').replace("Bearer ", "")
     current_username = token.split("-")[1]
-    
     user = User.query.filter_by(username=current_username).first()
     if not user: return jsonify({"error": "User not found"}), 404
         
@@ -210,9 +205,14 @@ def delete_user(username):
     db.session.commit()
     return jsonify({"message": f"User {username} deleted."}), 200
 
+# --- UPDATED DATA ENDPOINTS FOR WORKER TRACKING ---
+
 @app.route('/api/v1/interoperability/sync', methods=['POST'])
 @require_roles(allowed_roles=["worker", "anganwadi", "asha"])
 def sync_health_data():
+    # Identify exactly which worker is sending this data
+    current_username = request.headers.get('Authorization').replace("Bearer ", "").split("-")[1]
+    
     incoming_data = request.json
     if not incoming_data.get('consent_verified'): return jsonify({"error": "DPDP Act compliance failed."}), 400
     
@@ -221,16 +221,42 @@ def sync_health_data():
     elif weight < 7.5: status = "moderate_malnutrition_risk"
     else: status = "normal"
     
-    new_record = HealthRecord(child_id=incoming_data.get('child_id'), weight=weight, status=status, consent_verified=incoming_data.get('consent_verified'))
+    # Save the record WITH the username
+    new_record = HealthRecord(
+        child_id=incoming_data.get('child_id'), 
+        weight=weight, 
+        status=status, 
+        consent_verified=incoming_data.get('consent_verified'),
+        submitted_by=current_username
+    )
     db.session.add(new_record)
     db.session.commit()
     return jsonify({"message": "Record securely integrated"}), 201
 
+# NEW ROUTE: Fetch Records based on Role
+@app.route('/api/v1/records', methods=['GET'])
+def get_all_records():
+    token = request.headers.get('Authorization')
+    if not token or not token.startswith("Bearer "): return jsonify({"error": "Unauthorized"}), 401
+    
+    token_val = token.replace("Bearer ", "")
+    current_role = token_val.split("-")[0]
+    current_username = token_val.split("-")[1]
+    
+    # Admins see everything. Workers see only their own work.
+    if current_role in ["district_admin", "co_admin"]:
+        records = HealthRecord.query.order_by(HealthRecord.id.desc()).all()
+    else:
+        records = HealthRecord.query.filter_by(submitted_by=current_username).order_by(HealthRecord.id.desc()).all()
+        
+    result = [{"child_id": r.child_id, "weight": r.weight, "status": r.status, "submitted_by": r.submitted_by} for r in records]
+    return jsonify(result), 200
+
 @app.route('/api/v1/dashboard/alerts', methods=['GET'])
 @require_roles(allowed_roles=["district_admin", "co_admin"])
 def get_alerts():
-    records = HealthRecord.query.filter(HealthRecord.status.like('%malnutrition_risk%')).all()
-    critical_cases = [{"child_id": r.child_id, "weight": r.weight, "status": r.status, "consent_verified": r.consent_verified} for r in records]
+    records = HealthRecord.query.filter(HealthRecord.status.like('%malnutrition_risk%')).order_by(HealthRecord.id.desc()).all()
+    critical_cases = [{"child_id": r.child_id, "weight": r.weight, "status": r.status, "submitted_by": r.submitted_by} for r in records]
     return jsonify({"actionable_alerts": critical_cases, "count": len(critical_cases)}), 200
 
 if __name__ == '__main__':
