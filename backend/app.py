@@ -10,9 +10,11 @@ import csv
 import math
 
 app = Flask(__name__)
+# Enable CORS for Vercel Frontend communication
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'techfest_2026_secure_key')
 
+# Database URI configuration (Cloud Render PostgreSQL fallback to Local SQLite)
 basedir = os.path.abspath(os.path.dirname(__file__))
 local_db = 'sqlite:///' + os.path.join(basedir, 'healthgrid.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', local_db)
@@ -20,21 +22,40 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# --- 1. GLOBAL WHO DATA DICTIONARY ---
-WHO_DATA = {'male': {}, 'female': {}}
+# --- 1. GLOBAL WHO DATA DICTIONARY (WITH BULLETPROOF FALLBACK) ---
+WHO_DATA = {
+    'male': {
+        0: {"L": 0.3487, "M": 3.3464, "S": 0.14602},
+        1: {"L": 0.2036, "M": 4.47, "S": 0.13374},
+        12: {"L": -0.0784, "M": 9.6432, "S": 0.10620},
+        60: {"L": -0.0205, "M": 18.3315, "S": 0.11977}
+    },
+    'female': {
+        0: {"L": 0.3809, "M": 3.2322, "S": 0.14171},
+        1: {"L": 0.2526, "M": 4.19, "S": 0.13251},
+        12: {"L": -0.0402, "M": 8.9481, "S": 0.11059},
+        60: {"L": -0.0461, "M": 18.2543, "S": 0.13098}
+    }
+}
 
 def load_who_csv():
     csv_path = os.path.join(basedir, 'who_growth_data.csv')
-    try:
-        with open(csv_path, mode='r') as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                WHO_DATA[row['Gender'].lower()][int(row['Month'])] = {
-                    "L": float(row['L']), "M": float(row['M']), "S": float(row['S'])
-                }
-        print("✅ WHO Growth Data loaded into memory successfully!")
-    except FileNotFoundError:
-        print("⚠️ WARNING: who_growth_data.csv not found! Z-Score math will fail.")
+    if os.path.exists(csv_path):
+        try:
+            with open(csv_path, mode='r') as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    gender = row['Gender'].lower().strip()
+                    month = int(row['Month'])
+                    if gender not in WHO_DATA: WHO_DATA[gender] = {}
+                    WHO_DATA[gender][month] = {
+                        "L": float(row['L']), "M": float(row['M']), "S": float(row['S'])
+                    }
+            print("✅ WHO Growth Data loaded from CSV successfully!")
+        except Exception as e:
+            print(f"⚠️ CSV Read Error: {e}. Using fallback demo data.")
+    else:
+        print("⚠️ WARNING: who_growth_data.csv not found! Using safe fallback demo data.")
 
 load_who_csv()
 
@@ -42,6 +63,7 @@ def calculate_who_z_score(weight_kg, age_months, gender):
     gender = gender.lower()
     if gender not in WHO_DATA or age_months not in WHO_DATA[gender]:
         raise ValueError(f"No WHO reference data found for {gender} at {age_months} months.")
+    
     ref = WHO_DATA[gender][age_months]
     L, M, S = ref["L"], ref["M"], ref["S"]
     if L == 0: return math.log(weight_kg / M) / S
@@ -74,13 +96,15 @@ class SystemLog(db.Model):
 
 otp_store = {}
 
+# --- SECURITY AUDIT LOGGER ---
 def log_action(username, action, details=""):
     try:
         db.session.add(SystemLog(username=username, action=action, details=details))
         db.session.commit()
-    except Exception as e: print(f"Logging error: {e}")
+    except Exception as e:
+        print(f"Logging error: {e}")
 
-# --- INITIALIZE DB & SEED DEFAULT USERS ---
+# --- INITIALIZE DB & SEED DATA ---
 with app.app_context():
     db.create_all()
     if not User.query.first():
@@ -92,7 +116,6 @@ with app.app_context():
         ])
         db.session.commit()
         
-        # Seed records that match our CSV data (12 months old)
         db.session.bulk_save_objects([
             HealthRecord(child_id="C101", age_months=12, gender="male", weight=9.6, status="normal", consent_verified=True, submitted_by="asha_01"),
             HealthRecord(child_id="C102", age_months=12, gender="female", weight=5.2, status="severe_malnutrition_risk", consent_verified=True, submitted_by="anganwadi_01")
@@ -101,6 +124,7 @@ with app.app_context():
         log_action("system", "INITIALIZE", "Database seeded and system activated")
         print("✅ Database created and seeded successfully!")
 
+# --- ROLE-BASED ACCESS CONTROL (RBAC) ---
 def require_roles(allowed_roles):
     def decorator(f):
         @wraps(f)
@@ -113,7 +137,7 @@ def require_roles(allowed_roles):
         return decorated_function
     return decorator
 
-# --- API ROUTES ---
+# --- API ENDPOINTS ---
 @app.route('/api/v1/public/data', methods=['GET'])
 def get_public_data():
     records = HealthRecord.query.all()
@@ -131,71 +155,100 @@ def login():
     data = request.json
     user = User.query.filter_by(username=data.get("username")).first()
     if user and user.password == data.get("password"):
-        log_action(user.username, "LOGIN", "User authenticated")
-        return jsonify({"token": f"{user.role}-{user.username}-secure_123", "role": user.role, "name": user.name}), 200
-    if user: log_action(user.username, "LOGIN_FAILED", "Failed attempt")
-    return jsonify({"error": "Invalid credentials"}), 401
+        log_action(user.username, "LOGIN", "User authenticated successfully")
+        return jsonify({"token": f"{user.role}-{user.username}-secure_token_123", "role": user.role, "name": user.name}), 200
+    if user: log_action(user.username, "LOGIN_FAILED", "Failed login attempt")
+    return jsonify({"error": "Invalid username or password"}), 401
 
 @app.route('/api/v1/auth/request-otp', methods=['POST'])
 def request_otp():
     token = request.headers.get('Authorization', '')
+    if not token or not token.startswith("Bearer "): return jsonify({"error": "Unauthorized"}), 401
     current_username = token.replace("Bearer ", "").split("-")[1]
+    
     data = request.json or {}
     identifier = data.get("identifier")
     if not identifier: return jsonify({"error": "Phone/Email required."}), 400
+        
     otp_code = str(random.randint(1000, 9999))
     otp_store[current_username] = otp_code
-    print(f"\n🔒 OTP ({identifier}) for [{current_username}]: {otp_code}\n")
-    return jsonify({"message": f"OTP sent to {identifier}."}), 200
+    channel_type = "Email Inbox" if "@" in identifier else "Mobile SMS"
+    
+    log_action(current_username, "REQUEST_OTP", f"OTP dispatched to {channel_type}")
+    print(f"\n🔒 SECURITY OTP ({channel_type} -> {identifier}) for [{current_username}]: {otp_code}\n")
+    return jsonify({"message": f"OTP dispatched via {channel_type} to {identifier}."}), 200
 
 @app.route('/api/v1/auth/password', methods=['PUT'])
 def change_own_password():
-    current_username = request.headers.get('Authorization').replace("Bearer ", "").split("-")[1]
+    token = request.headers.get('Authorization', '')
+    if not token or not token.startswith("Bearer "): return jsonify({"error": "Unauthorized"}), 401
+    current_username = token.replace("Bearer ", "").split("-")[1]
+    
     user = User.query.filter_by(username=current_username).first()
     data = request.json
-    if otp_store.get(current_username) != data.get("otp"): return jsonify({"error": "Invalid OTP"}), 400
-    user.password = data.get("new_password")
+    submitted_otp, new_password = data.get("otp"), data.get("new_password")
+    
+    if otp_store.get(current_username) != submitted_otp: 
+        log_action(current_username, "OTP_FAILED", "Invalid OTP entered")
+        return jsonify({"error": "Invalid OTP code."}), 400
+        
+    user.password = new_password
     db.session.commit()
     del otp_store[current_username]
-    log_action(current_username, "UPDATE_PASSWORD", "Password changed")
-    return jsonify({"message": "Password updated."}), 200
+    log_action(current_username, "UPDATE_PASSWORD", "Password successfully changed via OTP")
+    return jsonify({"message": "Password updated successfully."}), 200
 
 @app.route('/api/v1/users', methods=['GET', 'POST'])
 @require_roles(allowed_roles=["district_admin", "co_admin"])
 def handle_users():
     current_role, current_username = request.headers.get('Authorization').replace("Bearer ", "").split("-")[0:2]
-    if request.method == 'GET':
-        return jsonify([{"username": u.username, "name": u.name, "role": u.role, **({"password": u.password} if current_role == "district_admin" else {})} for u in User.query.all()]), 200
     
+    if request.method == 'GET':
+        users = User.query.all()
+        user_list = []
+        for u in users:
+            info = {"username": u.username, "name": u.name, "role": u.role}
+            if current_role == "district_admin": info["password"] = u.password
+            user_list.append(info)
+        return jsonify(user_list), 200
+        
     data = request.json
-    if current_role == "co_admin" and data.get("role") in ["district_admin", "co_admin"]: return jsonify({"error": "Denied."}), 403
-    if User.query.filter_by(username=data.get("username")).first(): return jsonify({"error": "ID exists."}), 400
-    db.session.add(User(username=data.get("username"), password=data.get("password"), role=data.get("role"), name=data.get("name")))
+    username, role = data.get("username"), data.get("role")
+    if current_role == "co_admin" and role in ["district_admin", "co_admin"]: 
+        return jsonify({"error": "Permission Denied."}), 403
+    if User.query.filter_by(username=username).first(): 
+        return jsonify({"error": "User ID already exists."}), 400
+        
+    db.session.add(User(username=username, password=data.get("password"), role=role, name=data.get("name")))
     db.session.commit()
-    log_action(current_username, "CREATE_USER", f"Created {data.get('username')}")
-    return jsonify({"message": "Account created!"}), 201
+    log_action(current_username, "CREATE_USER", f"Provisioned {role} account: {username}")
+    return jsonify({"message": "Account created successfully!"}), 201
 
 @app.route('/api/v1/users/<username>', methods=['PUT', 'DELETE'])
 @require_roles(allowed_roles=["district_admin", "co_admin"])
 def modify_user(username):
     current_role, current_username = request.headers.get('Authorization').replace("Bearer ", "").split("-")[0:2]
     user = User.query.filter_by(username=username).first()
+    if not user: return jsonify({"error": "User not found."}), 404
+    
     if request.method == 'DELETE':
-        if username == current_username: return jsonify({"error": "Cannot delete self."}), 400
-        if current_role == "co_admin" and user.role in ["district_admin", "co_admin"]: return jsonify({"error": "Denied."}), 403
+        if username == current_username: return jsonify({"error": "Cannot delete own session account."}), 400
+        if current_role == "co_admin" and user.role in ["district_admin", "co_admin"]: return jsonify({"error": "Permission Denied."}), 403
         db.session.delete(user)
         db.session.commit()
-        log_action(current_username, "DELETE_USER", f"Revoked {username}")
-        return jsonify({"message": "Deleted."}), 200
+        log_action(current_username, "DELETE_USER", f"Revoked account: {username}")
+        return jsonify({"message": f"User {username} deleted."}), 200
         
     data = request.json
-    if data.get("new_username") and data.get("new_username") != username:
-        if current_role != "district_admin": return jsonify({"error": "Admins only."}), 403
-        user.username = data.get("new_username")
-    if data.get("new_password"): user.password = data.get("new_password")
+    new_username, new_password = data.get("new_username"), data.get("new_password")
+    if new_username and new_username != username:
+        if current_role != "district_admin": return jsonify({"error": "Only Admins can modify usernames."}), 403
+        user.username = new_username
+    if new_password: user.password = new_password
+    
     db.session.commit()
-    log_action(current_username, "EDIT_USER", f"Modified {username}")
-    return jsonify({"message": "Updated."}), 200
+    log_action(current_username, "EDIT_USER", f"Modified account details for: {username}")
+    return jsonify({"message": "User updated successfully."}), 200
 
 @app.route('/api/v1/interoperability/sync', methods=['POST'])
 @require_roles(allowed_roles=["worker", "anganwadi", "asha"])
@@ -203,26 +256,27 @@ def sync_health_data():
     current_username = request.headers.get('Authorization').replace("Bearer ", "").split("-")[1]
     incoming_data = request.json
     
-    # 1. Input Sanitization
+    # 1. Input Sanitization & Validation
     child_id = str(incoming_data.get('child_id', '')).strip()
     if len(child_id) < 3 or len(child_id) > 15 or not child_id.isalnum():
-        log_action(current_username, "SYNC_BLOCKED", "Invalid Child ID")
+        log_action(current_username, "SYNC_BLOCKED", "Invalid Child ID format")
         return jsonify({"error": "Invalid Child ID. Use 3-15 letters/numbers."}), 400
         
     try:
         weight = float(incoming_data.get('weight', 0))
         age_months = int(incoming_data.get('age_months', 0))
         gender = str(incoming_data.get('gender', 'male'))
-        if weight < 1.0 or weight > 30.0: raise ValueError("Weight must be 1.0 - 30.0 kg")
-        if age_months < 0 or age_months > 60: raise ValueError("Age must be 0 - 60 months")
+        if weight < 1.0 or weight > 30.0: raise ValueError("Weight must be between 1.0 and 30.0 kg")
+        if age_months < 0 or age_months > 60: raise ValueError("Age must be between 0 and 60 months")
     except ValueError as e:
         log_action(current_username, "SYNC_BLOCKED", str(e))
         return jsonify({"error": str(e)}), 400
 
     if not incoming_data.get('consent_verified'): 
-        return jsonify({"error": "DPDP Act consent required."}), 400
+        log_action(current_username, "SYNC_BLOCKED", "DPDP consent missing")
+        return jsonify({"error": "DPDP Act compliance failed. Consent required."}), 400
     
-    # 2. WHO Clinical Logic
+    # 2. WHO LMS Z-Score Clinical Logic
     try:
         z_score = calculate_who_z_score(weight, age_months, gender)
         if z_score <= -3.0: status = "severe_malnutrition_risk"
@@ -232,27 +286,44 @@ def sync_health_data():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     
-    db.session.add(HealthRecord(child_id=child_id, age_months=age_months, gender=gender, weight=weight, status=status, consent_verified=True, submitted_by=current_username))
+    new_record = HealthRecord(
+        child_id=child_id, age_months=age_months, gender=gender, 
+        weight=weight, status=status, consent_verified=True, submitted_by=current_username
+    )
+    db.session.add(new_record)
     db.session.commit()
-    log_action(current_username, "SYNC_RECORD", f"Logged {status} (Z:{z_score}) for {child_id}")
+    
+    log_action(current_username, "SYNC_RECORD", f"Logged {status} (Z:{z_score}) for ID: {child_id}")
     return jsonify({"message": f"Record integrated. Z-Score: {z_score}"}), 201
 
 @app.route('/api/v1/records', methods=['GET'])
 def get_all_records():
-    current_role, current_username = request.headers.get('Authorization').replace("Bearer ", "").split("-")[0:2]
-    records = HealthRecord.query.order_by(HealthRecord.id.desc()).all() if current_role in ["district_admin", "co_admin"] else HealthRecord.query.filter_by(submitted_by=current_username).order_by(HealthRecord.id.desc()).all()
-    return jsonify([{"child_id": r.child_id, "age": r.age_months, "gender": r.gender, "weight": r.weight, "status": r.status, "submitted_by": r.submitted_by} for r in records]), 200
+    token = request.headers.get('Authorization')
+    if not token or not token.startswith("Bearer "): return jsonify({"error": "Unauthorized"}), 401
+    token_val = token.replace("Bearer ", "")
+    current_role, current_username = token_val.split("-")[0], token_val.split("-")[1]
+    
+    if current_role in ["district_admin", "co_admin"]:
+        records = HealthRecord.query.order_by(HealthRecord.id.desc()).all()
+    else:
+        records = HealthRecord.query.filter_by(submitted_by=current_username).order_by(HealthRecord.id.desc()).all()
+        
+    result = [{"child_id": r.child_id, "age": r.age_months, "gender": r.gender, "weight": r.weight, "status": r.status, "submitted_by": r.submitted_by} for r in records]
+    return jsonify(result), 200
 
 @app.route('/api/v1/dashboard/alerts', methods=['GET'])
 @require_roles(allowed_roles=["district_admin", "co_admin"])
 def get_alerts():
     records = HealthRecord.query.filter(HealthRecord.status.like('%malnutrition_risk%')).order_by(HealthRecord.id.desc()).all()
-    return jsonify({"actionable_alerts": [{"child_id": r.child_id, "age": r.age_months, "gender": r.gender, "weight": r.weight, "status": r.status, "submitted_by": r.submitted_by} for r in records]}), 200
+    critical_cases = [{"child_id": r.child_id, "age": r.age_months, "gender": r.gender, "weight": r.weight, "status": r.status, "submitted_by": r.submitted_by} for r in records]
+    return jsonify({"actionable_alerts": critical_cases, "count": len(critical_cases)}), 200
 
 @app.route('/api/v1/logs', methods=['GET'])
 @require_roles(allowed_roles=["district_admin", "co_admin"])
 def get_logs():
-    return jsonify([{"id": l.id, "timestamp": l.timestamp, "username": l.username, "action": l.action, "details": l.details} for l in SystemLog.query.order_by(SystemLog.id.desc()).limit(100).all()]), 200
+    logs = SystemLog.query.order_by(SystemLog.id.desc()).limit(100).all()
+    result = [{"id": l.id, "timestamp": l.timestamp, "username": l.username, "action": l.action, "details": l.details} for l in logs]
+    return jsonify(result), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=int(os.environ.get('PORT', 5000)))
