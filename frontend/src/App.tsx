@@ -35,7 +35,7 @@ export default function App() {
   const [allRecords, setAllRecords] = useState<HealthRecord[]>([]); 
   const [logs, setLogs] = useState<SystemLog[]>([]);
   
-  // Form State
+  // Form State (Age is now empty by default so they MUST choose)
   const [childId, setChildId] = useState('');
   const [weight, setWeight] = useState('');
   const [ageMonths, setAgeMonths] = useState('');
@@ -109,7 +109,7 @@ export default function App() {
     
     if (!/^[a-zA-Z0-9]{3,15}$/.test(childId)) { playUISound('error'); setSubmitMessage("❌ ID must be 3-15 letters/numbers."); return; }
     if (isNaN(weightNum) || weightNum < 1.0 || weightNum > 30.0) { playUISound('error'); setSubmitMessage("❌ Weight must be 1.0 - 30.0 kg."); return; }
-    if (isNaN(ageNum) || ageNum < 0 || ageNum > 60) { playUISound('error'); setSubmitMessage("❌ Age must be 0 - 60 months."); return; }
+    if (isNaN(ageNum)) { playUISound('error'); setSubmitMessage("❌ Please select a valid age."); return; }
     if (!consent) { playUISound('error'); setSubmitMessage("❌ Guardian consent required."); return; }
 
     setSubmitMessage("Calculating WHO Z-Score...");
@@ -166,7 +166,7 @@ export default function App() {
         .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-bottom: 32px; }
         .worker-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; align-items: end; margin-top: 16px; }
         .header-container { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid rgba(52, 211, 153, 0.2); padding-bottom: 20px; margin-bottom: 30px; }
-        .input-field { background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: white; width: 100%; padding: 12px; border-radius: 8px; }
+        .input-field { background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: white; width: 100%; padding: 12px; border-radius: 8px; font-size: 14px; }
         .btn { padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; border: none; }
         table th { padding: 16px; color: #cbd5e1; } table td { padding: 16px; border-bottom: 1px solid rgba(51, 65, 85, 0.5); }
       `}</style>
@@ -216,7 +216,6 @@ export default function App() {
               <div className="glass-card" style={{ padding: '24px', marginBottom: '24px', borderTop: '4px solid #34d399', position: 'relative' }}>
                 <button onClick={() => setShowWorkerMenu(!showWorkerMenu)} className="btn" style={{ position: 'absolute', top: '16px', right: '16px', background: '#334155', color: 'white' }}>Security OTP</button>
                 
-                {/* WORKER OTP MENU */}
                 {showWorkerMenu && (
                   <div className="glass-card" style={{ position: 'absolute', right: '16px', top: '64px', padding: '16px', width: '250px', zIndex: 10 }}>
                     <h4 style={{ margin: '0 0 12px 0', color: '#34d399' }}>Update Password</h4>
@@ -239,7 +238,19 @@ export default function App() {
                 <h2>Enter Health Assessment (WHO LMS Z-Score)</h2>
                 <form onSubmit={handleDataSubmit} className="worker-form">
                   <div><label>Child ID</label><input className="input-field" type="text" minLength={3} maxLength={15} required value={childId} onChange={e => setChildId(e.target.value)} /></div>
-                  <div><label>Age (Months)</label><input className="input-field" type="number" min="0" max="60" required value={ageMonths} onChange={e => setAgeMonths(e.target.value)} /></div>
+                  
+                  {/* NEW DROP-DOWN MENU FOR AGE SELECTION */}
+                  <div>
+                    <label>Age Profile (Months)</label>
+                    <select className="input-field" required value={ageMonths} onChange={e => setAgeMonths(e.target.value)}>
+                      <option value="" disabled>Select Age</option>
+                      <option value="0">0 Months (Newborn)</option>
+                      <option value="1">1 Month</option>
+                      <option value="12">12 Months (1 Year)</option>
+                      <option value="60">60 Months (5 Years)</option>
+                    </select>
+                  </div>
+                  
                   <div><label>Gender</label><select className="input-field" required value={gender} onChange={e => setGender(e.target.value)}><option value="male">Male</option><option value="female">Female</option></select></div>
                   <div><label>Weight (kg)</label><input className="input-field" type="number" step="0.1" min="1" max="30" required value={weight} onChange={e => setWeight(e.target.value)} /></div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><input type="checkbox" required checked={consent} onChange={e => setConsent(e.target.checked)} /><label>Consent Verified</label></div>
@@ -329,7 +340,6 @@ export default function App() {
                   <ul style={{ listStyleType: 'none', padding: 0 }}>
                     {users.map((u) => (
                       <li key={u.username} style={{ padding: '16px 0', borderBottom: '1px solid rgba(51, 65, 85, 0.5)' }}>
-                        {/* EDIT USER MENU */}
                         {editingUserId === u.username ? (
                           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                             <input className="input-field" style={{ flex: 1 }} placeholder="New Username" onChange={e => setEditForm({ ...editForm, newUsername: e.target.value })} />
