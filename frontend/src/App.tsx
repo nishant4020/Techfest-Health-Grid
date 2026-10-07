@@ -3,6 +3,7 @@ import { useState, useEffect, type FormEvent } from 'react';
 interface HealthRecord { child_id: string; weight: number; status: string; consent_verified: boolean; submitted_by?: string; }
 interface UserInfo { username: string; name: string; role: string; password?: string; }
 interface PublicStats { total_tracked: number; severe_cases: number; moderate_cases: number; normal_cases: number; recent_entries: { weight: number, status: string }[]; }
+interface SystemLog { id: number; timestamp: string; username: string; action: string; details: string; }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000';
 
@@ -22,7 +23,7 @@ const playUISound = (type: 'success' | 'error' | 'logout' | 'sync' | 'click') =>
 
 export default function App() {
   const [showLoginView, setShowLoginView] = useState(false);
-  const [adminTab, setAdminTab] = useState<'alerts' | 'users' | 'records'>('alerts');
+  const [adminTab, setAdminTab] = useState<'alerts' | 'users' | 'records' | 'logs'>('alerts');
 
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
@@ -36,6 +37,7 @@ export default function App() {
   const [alerts, setAlerts] = useState<HealthRecord[]>([]);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [allRecords, setAllRecords] = useState<HealthRecord[]>([]); 
+  const [logs, setLogs] = useState<SystemLog[]>([]);
   
   const [childId, setChildId] = useState('');
   const [weight, setWeight] = useState('');
@@ -66,17 +68,17 @@ export default function App() {
   const fetchPublicData = async () => {
     try { const response = await fetch(`${API_BASE}/api/v1/public/data`); if (response.ok) setPublicData(await response.json()); } catch (error) { console.error("Error:", error); }
   };
-
   const fetchAlerts = async () => {
     try { const response = await fetch(`${API_BASE}/api/v1/dashboard/alerts`, { headers: { 'Authorization': `Bearer ${token}` } }); if (response.ok) setAlerts((await response.json()).actionable_alerts); } catch (err) { console.error(err); }
   };
-
   const fetchUsers = async () => {
     try { const response = await fetch(`${API_BASE}/api/v1/users`, { headers: { 'Authorization': `Bearer ${token}` } }); if (response.ok) setUsers(await response.json()); } catch (err) { console.error(err); }
   };
-
   const fetchRecords = async () => {
     try { const response = await fetch(`${API_BASE}/api/v1/records`, { headers: { 'Authorization': `Bearer ${token}` } }); if (response.ok) setAllRecords(await response.json()); } catch (err) { console.error(err); }
+  };
+  const fetchLogs = async () => {
+    try { const response = await fetch(`${API_BASE}/api/v1/logs`, { headers: { 'Authorization': `Bearer ${token}` } }); if (response.ok) setLogs(await response.json()); } catch (err) { console.error(err); }
   };
 
   useEffect(() => {
@@ -92,6 +94,7 @@ export default function App() {
         if (adminTab === 'alerts') { fetchAlerts(); interval = setInterval(fetchAlerts, 3000); } 
         else if (adminTab === 'users') fetchUsers();
         else if (adminTab === 'records') { fetchRecords(); interval = setInterval(fetchRecords, 3000); }
+        else if (adminTab === 'logs') { fetchLogs(); interval = setInterval(fetchLogs, 3000); }
       } else if (isWorker) {
         fetchRecords(); interval = setInterval(fetchRecords, 3000);
       }
@@ -137,10 +140,8 @@ export default function App() {
     try {
       const response = await fetch(`${API_BASE}/api/v1/auth/password`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ otp: enteredOtp, new_password: selfNewPassword }) });
       const result = await response.json();
-      if (response.ok) {
-        playUISound('success'); setSelfPasswordMsg("✅ Password updated!"); setEnteredOtp(''); setSelfNewPassword(''); setIdentifierInput('');
-        setTimeout(() => { setShowWorkerMenu(false); setOtpStep('request'); setSelfPasswordMsg(''); }, 2000);
-      } else { playUISound('error'); setSelfPasswordMsg(`❌ ${result.error}`); }
+      if (response.ok) { playUISound('success'); setSelfPasswordMsg("✅ Password updated!"); setEnteredOtp(''); setSelfNewPassword(''); setIdentifierInput(''); setTimeout(() => { setShowWorkerMenu(false); setOtpStep('request'); setSelfPasswordMsg(''); }, 2000); } 
+      else { playUISound('error'); setSelfPasswordMsg(`❌ ${result.error}`); }
     } catch { playUISound('error'); setSelfPasswordMsg("❌ Connection failed."); }
   };
 
@@ -262,7 +263,6 @@ export default function App() {
             <button className="btn" onClick={handleLogout} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none' }}>Logout</button>
           </header>
 
-          {/* WORKER VIEW WITH "MY RECORDS" TABLE */}
           {isWorker && (
             <div className="slide-up">
               <div className="glass-card" style={{ padding: '24px', borderTop: role === 'asha' ? '4px solid #34d399' : '4px solid #fb923c', position: 'relative', marginBottom: '24px' }}>
@@ -289,8 +289,6 @@ export default function App() {
                 </form>
                 {submitMessage && <div className="fade-in" style={{ marginTop: '16px', padding: '12px', borderRadius: '8px', fontWeight: '500', fontSize: '14px', backgroundColor: submitMessage.includes('✅') ? 'rgba(52, 211, 153, 0.2)' : 'rgba(248, 113, 113, 0.2)', color: submitMessage.includes('✅') ? '#34d399' : '#f87171' }}>{submitMessage}</div>}
               </div>
-              
-              {/* NEW WORKER "MY RECORDS" TABLE */}
               <div className="glass-card" style={{ padding: '24px' }}>
                 <h3 style={{ marginTop: 0, color: '#f8fafc', fontSize: '1.1rem', borderBottom: '1px solid rgba(52, 211, 153, 0.2)', paddingBottom: '12px' }}>My Sync History</h3>
                 <div className="table-wrapper">
@@ -310,13 +308,13 @@ export default function App() {
             </div>
           )}
 
-          {/* ADMIN VIEW WITH NEW "RECORDS" TAB */}
           {hasDashboardAccess && (
             <div className="slide-up">
               <div className="admin-tabs" style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-                <button className="btn" onClick={() => { playUISound('click'); setAdminTab('alerts'); }} style={{ backgroundColor: adminTab === 'alerts' ? '#10b981' : 'rgba(30, 41, 59, 0.8)', color: adminTab === 'alerts' ? 'white' : '#cbd5e1', border: adminTab === 'alerts' ? 'none' : '1px solid #334155', flex: 1 }}>Early Warning Alerts</button>
+                <button className="btn" onClick={() => { playUISound('click'); setAdminTab('alerts'); }} style={{ backgroundColor: adminTab === 'alerts' ? '#10b981' : 'rgba(30, 41, 59, 0.8)', color: adminTab === 'alerts' ? 'white' : '#cbd5e1', border: adminTab === 'alerts' ? 'none' : '1px solid #334155', flex: 1 }}>Alerts</button>
                 <button className="btn" onClick={() => { playUISound('click'); setAdminTab('records'); }} style={{ backgroundColor: adminTab === 'records' ? '#10b981' : 'rgba(30, 41, 59, 0.8)', color: adminTab === 'records' ? 'white' : '#cbd5e1', border: adminTab === 'records' ? 'none' : '1px solid #334155', flex: 1 }}>Global Records</button>
-                <button className="btn" onClick={() => { playUISound('click'); setAdminTab('users'); }} style={{ backgroundColor: adminTab === 'users' ? '#10b981' : 'rgba(30, 41, 59, 0.8)', color: adminTab === 'users' ? 'white' : '#cbd5e1', border: adminTab === 'users' ? 'none' : '1px solid #334155', flex: 1 }}>System Users</button>
+                <button className="btn" onClick={() => { playUISound('click'); setAdminTab('users'); }} style={{ backgroundColor: adminTab === 'users' ? '#10b981' : 'rgba(30, 41, 59, 0.8)', color: adminTab === 'users' ? 'white' : '#cbd5e1', border: adminTab === 'users' ? 'none' : '1px solid #334155', flex: 1 }}>Directory</button>
+                <button className="btn" onClick={() => { playUISound('click'); setAdminTab('logs'); }} style={{ backgroundColor: adminTab === 'logs' ? '#10b981' : 'rgba(30, 41, 59, 0.8)', color: adminTab === 'logs' ? 'white' : '#cbd5e1', border: adminTab === 'logs' ? 'none' : '1px solid #334155', flex: 1 }}>System Logs</button>
               </div>
 
               {adminTab === 'alerts' && (
@@ -339,7 +337,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* NEW ADMIN "GLOBAL RECORDS" TAB */}
               {adminTab === 'records' && (
                 <div className="fade-in glass-card table-wrapper" style={{ padding: '0' }}>
                   <div style={{ padding: '16px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderBottom: '1px solid rgba(51, 65, 85, 0.5)' }}><h3 style={{ margin: 0, color: '#f8fafc', fontSize: '1.1rem' }}>All System Records</h3></div>
@@ -358,7 +355,26 @@ export default function App() {
                 </div>
               )}
 
-              {/* ADMIN SYSTEM USERS DIRECTORY */}
+              {/* NEW SYSTEM LOGS TAB */}
+              {adminTab === 'logs' && (
+                <div className="fade-in glass-card table-wrapper" style={{ padding: '0' }}>
+                  <div style={{ padding: '16px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderBottom: '1px solid rgba(51, 65, 85, 0.5)' }}><h3 style={{ margin: 0, color: '#f8fafc', fontSize: '1.1rem' }}>Audit Trail & System Logs</h3></div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '650px' }}>
+                    <thead><tr style={{ backgroundColor: 'rgba(30, 41, 59, 0.9)', borderBottom: '2px solid rgba(52, 211, 153, 0.2)' }}><th style={{ padding: '16px', color: '#cbd5e1' }}>Timestamp</th><th style={{ padding: '16px', color: '#cbd5e1' }}>User ID</th><th style={{ padding: '16px', color: '#cbd5e1' }}>Action Type</th><th style={{ padding: '16px', color: '#cbd5e1' }}>Details</th></tr></thead>
+                    <tbody>
+                      {logs.map((l) => (
+                        <tr key={l.id} style={{ borderBottom: '1px solid rgba(51, 65, 85, 0.5)' }}>
+                          <td style={{ padding: '16px', color: '#94a3b8', fontSize: '13px' }}>{l.timestamp}</td>
+                          <td style={{ padding: '16px', fontWeight: 'bold', color: '#38bdf8' }}>{l.username}</td>
+                          <td style={{ padding: '16px' }}><span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', backgroundColor: 'rgba(167, 139, 250, 0.2)', color: '#a78bfa' }}>{l.action}</span></td>
+                          <td style={{ padding: '16px', color: '#cbd5e1', fontSize: '13px' }}>{l.details}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {adminTab === 'users' && (
                 <div className="fade-in admin-layout">
                    <div className="glass-card" style={{ padding: '24px', height: 'fit-content' }}>
