@@ -35,7 +35,6 @@ export default function App() {
   const [allRecords, setAllRecords] = useState<HealthRecord[]>([]); 
   const [logs, setLogs] = useState<SystemLog[]>([]);
   
-  // Form State (Age is now empty by default so they MUST choose)
   const [childId, setChildId] = useState('');
   const [weight, setWeight] = useState('');
   const [ageMonths, setAgeMonths] = useState('');
@@ -43,7 +42,6 @@ export default function App() {
   const [consent, setConsent] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
 
-  // Worker OTP Security State
   const [showWorkerMenu, setShowWorkerMenu] = useState(false);
   const [otpStep, setOtpStep] = useState<'request' | 'verify'>('request');
   const [identifierInput, setIdentifierInput] = useState('');
@@ -51,7 +49,6 @@ export default function App() {
   const [selfNewPassword, setSelfNewPassword] = useState('');
   const [selfPasswordMsg, setSelfPasswordMsg] = useState('');
   
-  // Admin User Management State
   const [newUserId, setNewUserId] = useState('');
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
@@ -161,35 +158,81 @@ export default function App() {
         body { margin: 0; background: linear-gradient(135deg, #064e3b 0%, #022c22 50%, #0f172a 100%); background-attachment: fixed; color: #f1f5f9; font-family: system-ui, sans-serif; min-height: 100vh; }
         * { box-sizing: border-box; }
         .main-container { padding: 40px 20px; max-width: 1100px; margin: 0 auto; width: 100%; }
-        .glass-card { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(52, 211, 153, 0.2); border-radius: 14px; box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.4); color: #f8fafc; }
+        .glass-card { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(52, 211, 153, 0.2); border-radius: 14px; box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.4); color: #f8fafc; overflow: hidden; }
         .table-wrapper { overflow-x: auto; width: 100%; }
-        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-bottom: 32px; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; margin-bottom: 24px; }
         .worker-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; align-items: end; margin-top: 16px; }
         .header-container { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid rgba(52, 211, 153, 0.2); padding-bottom: 20px; margin-bottom: 30px; }
         .input-field { background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: white; width: 100%; padding: 12px; border-radius: 8px; font-size: 14px; }
         .btn { padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; border: none; }
-        table th { padding: 16px; color: #cbd5e1; } table td { padding: 16px; border-bottom: 1px solid rgba(51, 65, 85, 0.5); }
+        table th { padding: 16px; color: #cbd5e1; text-align: left; } table td { padding: 16px; border-bottom: 1px solid rgba(51, 65, 85, 0.5); }
       `}</style>
 
+      {/* --- EXPANDED PUBLIC DASHBOARD --- */}
       {!token && !showLoginView && (
         <div className="main-container">
           <header className="header-container">
-            <div><h1 style={{ margin: 0, color: '#34d399' }}>Public Node</h1><p>DPDP-Compliant Transparency</p></div>
+            <div><h1 style={{ margin: 0, color: '#34d399' }}>Public Node</h1><p>DPDP-Compliant Live Health Transparency Dashboard</p></div>
             <button className="btn" onClick={() => setShowLoginView(true)} style={{ backgroundColor: '#10b981', color: 'white' }}>Official Login</button>
           </header>
-          {publicData && (
-            <div className="stat-grid">
-              <div className="glass-card" style={{ padding: '30px', textAlign: 'center' }}><h2 style={{ fontSize: '3rem', margin: 0 }}>{publicData.total_tracked}</h2><p>Total Tracked</p></div>
-              <div className="glass-card" style={{ padding: '30px', textAlign: 'center' }}><h2 style={{ fontSize: '3rem', margin: 0, color: '#34d399' }}>{publicData.normal_cases}</h2><p>Healthy</p></div>
-              <div className="glass-card" style={{ padding: '30px', textAlign: 'center' }}><h2 style={{ fontSize: '3rem', margin: 0, color: '#f87171' }}>{publicData.severe_cases}</h2><p>Alerts</p></div>
-            </div>
+          
+          {publicData ? (
+            <>
+              <div className="stat-grid">
+                <div className="glass-card" style={{ padding: '30px', textAlign: 'center', borderTop: '4px solid #38bdf8' }}>
+                  <h2 style={{ fontSize: '3rem', margin: 0, color: '#38bdf8' }}>{publicData.total_tracked}</h2><p>Total Tracked Profiles</p>
+                </div>
+                <div className="glass-card" style={{ padding: '30px', textAlign: 'center', borderTop: '4px solid #34d399' }}>
+                  <h2 style={{ fontSize: '3rem', margin: 0, color: '#34d399' }}>{publicData.normal_cases}</h2><p>Healthy (Normal Z-Score)</p>
+                </div>
+                <div className="glass-card" style={{ padding: '30px', textAlign: 'center', borderTop: '4px solid #f59e0b' }}>
+                  <h2 style={{ fontSize: '3rem', margin: 0, color: '#f59e0b' }}>{publicData.moderate_cases}</h2><p>Moderate Risk (MAM)</p>
+                </div>
+                <div className="glass-card" style={{ padding: '30px', textAlign: 'center', borderTop: '4px solid #ef4444' }}>
+                  <h2 style={{ fontSize: '3rem', margin: 0, color: '#ef4444' }}>{publicData.severe_cases}</h2><p>Severe Risk (SAM)</p>
+                </div>
+              </div>
+
+              <div className="glass-card table-wrapper" style={{ marginTop: '24px' }}>
+                <div style={{ padding: '24px', borderBottom: '1px solid rgba(52, 211, 153, 0.2)' }}>
+                  <h3 style={{ margin: 0 }}>Recent Anonymized Scans</h3>
+                  <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>Child IDs and Worker details are hidden to comply with the Digital Personal Data Protection Act.</p>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead><tr style={{ background: 'rgba(30,41,59,0.5)' }}><th>Recorded Weight</th><th>Clinical Health Status</th></tr></thead>
+                  <tbody>
+                    {publicData.recent_entries.map((entry, i) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 'bold' }}>{entry.weight} kg</td>
+                        <td>
+                          <span style={{ 
+                            padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold',
+                            backgroundColor: entry.status === 'normal' ? 'rgba(52, 211, 153, 0.1)' : entry.status === 'moderate_malnutrition_risk' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            color: entry.status === 'normal' ? '#34d399' : entry.status === 'moderate_malnutrition_risk' ? '#f59e0b' : '#ef4444' 
+                          }}>
+                            {entry.status.replace(/_/g, ' ').toUpperCase()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {publicData.recent_entries.length === 0 && (
+                      <tr><td colSpan={2} style={{ textAlign: 'center', color: '#94a3b8' }}>No scans recorded yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <p style={{ textAlign: 'center', color: '#94a3b8' }}>Connecting to Interoperability Grid...</p>
           )}
         </div>
       )}
 
+      {/* --- SECURE GATEWAY LOGIN --- */}
       {!token && showLoginView && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
           <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '400px' }}>
+            <button onClick={() => setShowLoginView(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', marginBottom: '16px' }}>← Back to Public Node</button>
             <h2>Secure Gateway</h2>
             <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <input className="input-field" type="text" required placeholder="User ID" value={loginUsername} onChange={e => setLoginUsername(e.target.value)} />
@@ -201,6 +244,7 @@ export default function App() {
         </div>
       )}
 
+      {/* --- AUTHENTICATED DASHBOARDS --- */}
       {token && (
         <div className="main-container">
           <header className="glass-card header-container" style={{ padding: '24px' }}>
@@ -238,8 +282,6 @@ export default function App() {
                 <h2>Enter Health Assessment (WHO LMS Z-Score)</h2>
                 <form onSubmit={handleDataSubmit} className="worker-form">
                   <div><label>Child ID</label><input className="input-field" type="text" minLength={3} maxLength={15} required value={childId} onChange={e => setChildId(e.target.value)} /></div>
-                  
-                  {/* NEW DROP-DOWN MENU FOR AGE SELECTION */}
                   <div>
                     <label>Age Profile (Months)</label>
                     <select className="input-field" required value={ageMonths} onChange={e => setAgeMonths(e.target.value)}>
@@ -250,7 +292,6 @@ export default function App() {
                       <option value="60">60 Months (5 Years)</option>
                     </select>
                   </div>
-                  
                   <div><label>Gender</label><select className="input-field" required value={gender} onChange={e => setGender(e.target.value)}><option value="male">Male</option><option value="female">Female</option></select></div>
                   <div><label>Weight (kg)</label><input className="input-field" type="number" step="0.1" min="1" max="30" required value={weight} onChange={e => setWeight(e.target.value)} /></div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><input type="checkbox" required checked={consent} onChange={e => setConsent(e.target.checked)} /><label>Consent Verified</label></div>
