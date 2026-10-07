@@ -8,9 +8,11 @@ import requests
 import os
 
 app = Flask(__name__)
+# Allow cross-origin requests from Vercel frontend
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'techfest_2026_secure_key')
 
+# Database configuration (Cloud fallback to Local SQLite)
 basedir = os.path.abspath(os.path.dirname(__file__))
 local_db = 'sqlite:///' + os.path.join(basedir, 'healthgrid.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', local_db)
@@ -34,7 +36,6 @@ class User(db.Model):
     role = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(100), nullable=False)
 
-# NEW: System Audit Log Table
 class SystemLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -44,7 +45,7 @@ class SystemLog(db.Model):
 
 otp_store = {}
 
-# --- HELPER: LOGGING FUNCTION ---
+# --- SECURITY AUDIT LOGGER ---
 def log_action(username, action, details=""):
     try:
         new_log = SystemLog(username=username, action=action, details=details)
@@ -53,7 +54,7 @@ def log_action(username, action, details=""):
     except Exception as e:
         print(f"Logging error: {e}")
 
-# --- INITIALIZE DATABASE & SEED DATA ---
+# --- INITIALIZE DB & SEED DEFAULT USERS ---
 with app.app_context():
     db.create_all()
     if not User.query.first():
@@ -65,29 +66,26 @@ with app.app_context():
         ]
         db.session.bulk_save_objects(seed_users)
         db.session.commit()
-        
-        # Seed an initial log
         log_action("system", "INITIALIZE", "Database seeded and system activated")
-        print("✅ Database created with Audit Logging enabled!")
+        print("✅ Database created and seeded successfully!")
 
+# --- ROLE-BASED ACCESS CONTROL (RBAC) ---
 def require_roles(allowed_roles):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             token = request.headers.get('Authorization')
-            if not token or not token.startswith("Bearer "): return jsonify({"error": "Unauthorized"}), 401
-            
+            if not token or not token.startswith("Bearer "): 
+                return jsonify({"error": "Unauthorized"}), 401
             token_value = token.replace("Bearer ", "")
             parts = token_value.split("-")
-            
             if len(parts) >= 1 and parts[0] in allowed_roles:
                 return f(*args, **kwargs)
             return jsonify({"error": "Insufficient decision rights"}), 403
         return decorated_function
     return decorator
 
-# --- API ENDPOINTS WITH LOGGING INTEGRATED ---
-
+# --- API ROUTES ---
 @app.route('/api/v1/public/data', methods=['GET'])
 def get_public_data():
     records = HealthRecord.query.all()
@@ -211,17 +209,34 @@ def sync_health_data():
     current_username = request.headers.get('Authorization').replace("Bearer ", "").split("-")[1]
     incoming_data = request.json
     
-    if not incoming_data.get('consent_verified'): return jsonify({"error": "DPDP Act compliance failed."}), 400
+    # 1. Input Validation: Child ID
+    child_id = str(incoming_data.get('child_id', '')).strip()
+    if len(child_id) < 3 or len(child_id) > 15 or not child_id.isalnum():
+        log_action(current_username, "SYNC_BLOCKED", "Failed validation: Invalid Child ID format")
+        return jsonify({"error": "Invalid Child ID. Use 3-15 letters/numbers only."}), 400
+        
+    # 2. Input Validation: Weight
+    try:
+        weight = float(incoming_data.get('weight', 0))
+        if weight < 1.0 or weight > 30.0:
+            log_action(current_username, "SYNC_BLOCKED", f"Failed validation: Unrealistic weight ({weight}kg)")
+            return jsonify({"error": "Invalid weight. Must be between 1.0 kg and 30.0 kg."}), 400
+    except ValueError:
+        return jsonify({"error": "Weight must be a valid number."}), 400
+
+    # 3. Input Validation: DPDP Consent
+    if not incoming_data.get('consent_verified'): 
+        log_action(current_username, "SYNC_BLOCKED", "Failed validation: No DPDP consent")
+        return jsonify({"error": "DPDP Act compliance failed. Consent required."}), 400
     
-    weight = float(incoming_data.get('weight', 0))
     if weight < 6.0: status = "severe_malnutrition_risk"
     elif weight < 7.5: status = "moderate_malnutrition_risk"
     else: status = "normal"
     
-    new_record = HealthRecord(child_id=incoming_data.get('child_id'), weight=weight, status=status, consent_verified=incoming_data.get('consent_verified'), submitted_by=current_username)
+    new_record = HealthRecord(child_id=child_id, weight=weight, status=status, consent_verified=True, submitted_by=current_username)
     db.session.add(new_record)
     db.session.commit()
-    log_action(current_username, "SYNC_RECORD", f"Logged {status} for Child ID: {incoming_data.get('child_id')}")
+    log_action(current_username, "SYNC_RECORD", f"Logged {status} for Child ID: {child_id}")
     return jsonify({"message": "Record securely integrated"}), 201
 
 @app.route('/api/v1/records', methods=['GET'])
@@ -244,7 +259,6 @@ def get_alerts():
     critical_cases = [{"child_id": r.child_id, "weight": r.weight, "status": r.status, "submitted_by": r.submitted_by} for r in records]
     return jsonify({"actionable_alerts": critical_cases, "count": len(critical_cases)}), 200
 
-# NEW: Fetch System Logs API
 @app.route('/api/v1/logs', methods=['GET'])
 @require_roles(allowed_roles=["district_admin", "co_admin"])
 def get_logs():

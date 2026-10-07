@@ -117,9 +117,23 @@ export default function App() {
   };
 
   const handleDataSubmit = async (e: FormEvent) => {
-    e.preventDefault(); setSubmitMessage("Syncing data...");
+    e.preventDefault(); 
+    
+    // STRICT FRONTEND VALIDATION
+    const weightNum = parseFloat(weight);
+    if (!/^[a-zA-Z0-9]{3,15}$/.test(childId)) {
+      playUISound('error'); setSubmitMessage("❌ Invalid ID: Must be 3-15 letters/numbers only."); return;
+    }
+    if (isNaN(weightNum) || weightNum < 1.0 || weightNum > 30.0) {
+      playUISound('error'); setSubmitMessage("❌ Invalid Weight: Must be between 1.0 kg and 30.0 kg."); return;
+    }
+    if (!consent) {
+      playUISound('error'); setSubmitMessage("❌ Guardian consent is mandatory."); return;
+    }
+
+    setSubmitMessage("Syncing data...");
     try {
-      const response = await fetch(`${API_BASE}/api/v1/interoperability/sync`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ child_id: childId, weight: parseFloat(weight), consent_verified: consent }) });
+      const response = await fetch(`${API_BASE}/api/v1/interoperability/sync`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ child_id: childId, weight: weightNum, consent_verified: consent }) });
       if (response.ok) { playUISound('sync'); setSubmitMessage("✅ Data synced securely!"); setChildId(''); setWeight(''); setConsent(false); fetchRecords(); } 
       else { playUISound('error'); const res = await response.json(); setSubmitMessage(`❌ Error: ${res.error}`); }
     } catch { playUISound('error'); setSubmitMessage("❌ Connection failed."); }
@@ -263,6 +277,7 @@ export default function App() {
             <button className="btn" onClick={handleLogout} style={{ backgroundColor: '#ef4444', color: 'white', border: 'none' }}>Logout</button>
           </header>
 
+          {/* --- WORKER DASHBOARD --- */}
           {isWorker && (
             <div className="slide-up">
               <div className="glass-card" style={{ padding: '24px', borderTop: role === 'asha' ? '4px solid #34d399' : '4px solid #fb923c', position: 'relative', marginBottom: '24px' }}>
@@ -282,8 +297,8 @@ export default function App() {
                 </div>
                 <h2 style={{ marginTop: 0, color: '#f8fafc', fontSize: '1.2rem' }}>Enter Health Assessment</h2>
                 <form onSubmit={handleDataSubmit} className="worker-form">
-                  <div><label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#cbd5e1', marginBottom: '6px' }}>Registered Child ID</label><input className="input-field" type="text" required value={childId} onChange={e => { playUISound('click'); setChildId(e.target.value); }} placeholder="e.g. C501" /></div>
-                  <div><label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#cbd5e1', marginBottom: '6px' }}>Weight (kg)</label><input className="input-field" type="number" step="0.1" required value={weight} onChange={e => { playUISound('click'); setWeight(e.target.value); }} placeholder="0.0" /></div>
+                  <div><label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#cbd5e1', marginBottom: '6px' }}>Registered Child ID</label><input className="input-field" type="text" minLength={3} maxLength={15} pattern="[A-Za-z0-9]+" required value={childId} onChange={e => { playUISound('click'); setChildId(e.target.value); }} placeholder="e.g. C501" /></div>
+                  <div><label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#cbd5e1', marginBottom: '6px' }}>Weight (kg)</label><input className="input-field" type="number" step="0.1" min="1" max="30" required value={weight} onChange={e => { playUISound('click'); setWeight(e.target.value); }} placeholder="0.0" /></div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '45px' }}><input type="checkbox" id="consent" checked={consent} onChange={e => { playUISound('click'); setConsent(e.target.checked); }} style={{ width: '20px', height: '20px', accentColor: '#34d399', cursor: 'pointer' }}/><label htmlFor="consent" style={{ fontSize: '14px', fontWeight: '600', color: '#cbd5e1', cursor: 'pointer' }}>Consent Verified</label></div>
                   <button className="btn" type="submit" onClick={() => playUISound('click')} style={{ backgroundColor: '#10b981', color: 'white', border: 'none', height: '45px' }}>Sync Data</button>
                 </form>
@@ -308,6 +323,7 @@ export default function App() {
             </div>
           )}
 
+          {/* --- ADMIN DASHBOARD --- */}
           {hasDashboardAccess && (
             <div className="slide-up">
               <div className="admin-tabs" style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
@@ -355,7 +371,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* NEW SYSTEM LOGS TAB */}
               {adminTab === 'logs' && (
                 <div className="fade-in glass-card table-wrapper" style={{ padding: '0' }}>
                   <div style={{ padding: '16px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderBottom: '1px solid rgba(51, 65, 85, 0.5)' }}><h3 style={{ margin: 0, color: '#f8fafc', fontSize: '1.1rem' }}>Audit Trail & System Logs</h3></div>
