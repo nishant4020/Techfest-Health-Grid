@@ -35,7 +35,7 @@ export default function App() {
   const [publicData, setPublicData] = useState<PublicStats | null>(null);
   const [alerts, setAlerts] = useState<HealthRecord[]>([]);
   const [users, setUsers] = useState<UserInfo[]>([]);
-  const [allRecords, setAllRecords] = useState<HealthRecord[]>([]); // New state for worker/global records
+  const [allRecords, setAllRecords] = useState<HealthRecord[]>([]); 
   
   const [childId, setChildId] = useState('');
   const [weight, setWeight] = useState('');
@@ -358,21 +358,43 @@ export default function App() {
                 </div>
               )}
 
+              {/* ADMIN SYSTEM USERS DIRECTORY */}
               {adminTab === 'users' && (
                 <div className="fade-in admin-layout">
                    <div className="glass-card" style={{ padding: '24px', height: 'fit-content' }}>
                     <h3 style={{ marginTop: 0, color: '#f8fafc', borderBottom: '1px solid rgba(52, 211, 153, 0.2)', paddingBottom: '12px', fontSize: '1.1rem' }}>Provision Account</h3>
-                    <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}><input className="input-field" type="text" placeholder="User ID" required value={newUserId} onChange={e => setNewUserId(e.target.value)} /><input className="input-field" type="text" placeholder="Full Name" required value={newUserName} onChange={e => setNewUserName(e.target.value)} /><select className="input-field" value={newUserRole} onChange={e => setNewUserRole(e.target.value)} style={{ backgroundColor: '#1e293b' }}><option value="anganwadi">Anganwadi Worker</option><option value="asha">ASHA Worker</option>{isSuperAdmin && <option value="co_admin">Co-Admin Manager</option>}{isSuperAdmin && <option value="district_admin">District Super Admin</option>}</select><input className="input-field" type="text" placeholder="Temporary Password" required value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} /><button className="btn" type="submit" style={{ backgroundColor: '#10b981', color: 'white', border: 'none' }}>Provision User</button></form>
+                    <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
+                      <input className="input-field" type="text" placeholder="User ID" required value={newUserId} onChange={e => { playUISound('click'); setNewUserId(e.target.value); }} />
+                      <input className="input-field" type="text" placeholder="Full Name" required value={newUserName} onChange={e => { playUISound('click'); setNewUserName(e.target.value); }} />
+                      <select className="input-field" value={newUserRole} onChange={e => { playUISound('click'); setNewUserRole(e.target.value); }} style={{ backgroundColor: '#1e293b' }}>
+                        <option value="anganwadi">Anganwadi Worker</option><option value="asha">ASHA Worker</option>{isSuperAdmin && <option value="co_admin">Co-Admin Manager</option>}{isSuperAdmin && <option value="district_admin">District Super Admin</option>}
+                      </select>
+                      <input className="input-field" type="text" placeholder="Temporary Password" required value={newUserPassword} onChange={e => { playUISound('click'); setNewUserPassword(e.target.value); }} />
+                      <button className="btn" type="submit" onClick={() => playUISound('click')} style={{ backgroundColor: '#10b981', color: 'white', border: 'none' }}>Provision User</button>
+                    </form>
+                    {userMsg && <div className="fade-in" style={{ marginTop: '16px', padding: '12px', borderRadius: '8px', fontSize: '13px', fontWeight: '500', backgroundColor: userMsg.includes('✅') ? 'rgba(52, 211, 153, 0.2)' : 'rgba(248, 113, 113, 0.2)', color: userMsg.includes('✅') ? '#34d399' : '#f87171' }}>{userMsg}</div>}
                   </div>
                   <div className="glass-card" style={{ padding: '24px' }}>
                     <h3 style={{ marginTop: 0, color: '#f8fafc', borderBottom: '1px solid rgba(52, 211, 153, 0.2)', paddingBottom: '12px', fontSize: '1.1rem' }}>Network Directory</h3>
                     <ul style={{ listStyleType: 'none', padding: 0, margin: 0, marginTop: '16px' }}>
                       {users.map((u, i) => (
                         <li key={u.username} style={{ padding: '16px 0', borderBottom: i === users.length -1 ? 'none' : '1px solid rgba(51, 65, 85, 0.5)' }}>
-                          <div className="user-list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div><div style={{ fontSize: '16px', fontWeight: 'bold', color: '#f8fafc' }}>{u.name}</div><div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '6px' }}>ID: <code>{u.username}</code> <span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '10px', backgroundColor: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>{u.role.toUpperCase()}</span></div></div>
-                            {(isSuperAdmin || (u.role !== 'district_admin' && u.role !== 'co_admin')) && <button className="btn" onClick={() => handleDeleteUser(u.username)} style={{ padding: '8px 12px', backgroundColor: '#ef4444', color: 'white', border: 'none', fontSize: '12px' }}>Revoke</button>}
-                          </div>
+                          {editingUserId === u.username ? (
+                            <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: 'rgba(30, 41, 59, 0.9)', padding: '16px', borderRadius: '8px', border: '1px solid #334155' }}>
+                              <div><div style={{ fontSize: '15px', fontWeight: 'bold', color: '#f8fafc' }}>Editing: {u.name}</div></div>
+                              {isSuperAdmin && (<div><label style={{ fontSize: '12px', color: '#cbd5e1' }}>User ID</label><input className="input-field" type="text" value={editForm.newUsername} onChange={(e) => { playUISound('click'); setEditForm({...editForm, newUsername: e.target.value}); }} /></div>)}
+                              <div><label style={{ fontSize: '12px', color: '#cbd5e1' }}>New Password</label><input className="input-field" type="text" value={editForm.newPassword} onChange={(e) => { playUISound('click'); setEditForm({...editForm, newPassword: e.target.value}); }} /></div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><button className="btn" onClick={() => { playUISound('click'); handleEditSubmit(u.username); }} style={{ backgroundColor: '#2563eb', color: 'white', border: 'none' }}>Save</button><button className="btn" onClick={() => { playUISound('click'); setEditingUserId(null); }} style={{ backgroundColor: '#64748b', color: 'white', border: 'none' }}>Cancel</button></div>
+                            </div>
+                          ) : (
+                            <div className="user-list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div><div style={{ fontSize: '16px', fontWeight: 'bold', color: '#f8fafc' }}>{u.name}</div><div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '6px' }}>ID: <code>{u.username}</code> <span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '10px', backgroundColor: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>{u.role.toUpperCase()}</span></div></div>
+                              <div className="user-list-actions" style={{ display: 'flex', gap: '8px' }}>
+                                {(isSuperAdmin || isCoAdmin) && <button className="btn" onClick={() => { playUISound('click'); setEditingUserId(u.username); setEditForm({ newUsername: u.username, newPassword: u.password || '' }); }} style={{ padding: '8px 12px', backgroundColor: '#f59e0b', color: 'white', border: 'none', fontSize: '12px' }}>Edit</button>}
+                                {(isSuperAdmin || (u.role !== 'district_admin' && u.role !== 'co_admin')) && <button className="btn" onClick={() => { playUISound('click'); handleDeleteUser(u.username); }} style={{ padding: '8px 12px', backgroundColor: '#ef4444', color: 'white', border: 'none', fontSize: '12px' }}>Revoke</button>}
+                              </div>
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
