@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 
 interface HealthRecord { child_id: string; weight: number; status: string; consent_verified: boolean; }
 interface UserInfo { username: string; name: string; role: string; password?: string; }
@@ -106,13 +106,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (!token && !showLoginView) { fetchPublicData(); interval = setInterval(fetchPublicData, 3000); }
     return () => clearInterval(interval);
   }, [token, showLoginView]);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (token && hasDashboardAccess) {
       if (adminTab === 'alerts') { fetchAlerts(); interval = setInterval(fetchAlerts, 3000); } 
       else if (adminTab === 'users') { fetchUsers(); }
